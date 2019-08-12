@@ -76,8 +76,8 @@ class MG_GAN(Record):
             g_loss = weight* loss_rec + tf.reduce_mean(loss_g_fake)
 
         with scope("AUC"):
-            _, auc_dgx = tf.metrics.auc(y, tf.nn.sigmoid(tf.reduce_mean(list(dgx.values()))))
-            _, auc_dx = tf.metrics.auc(y, tf.nn.sigmoid(tf.reduce_mean(list(dx.values()))))
+            #_, auc_dgx = tf.metrics.auc(y, tf.nn.sigmoid(tf.reduce_mean(list(dgx.values()))))
+            #_, auc_dx = tf.metrics.auc(y, tf.nn.sigmoid(tf.reduce_mean(list(dx.values()))))
             _, auc_gx = tf.metrics.auc(y, tf.reduce_mean((x-gx)**2, axis=1))
 
         g_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator")
@@ -95,9 +95,9 @@ class MG_GAN(Record):
                      , x=x
                      , y=y
                      , gx=gx
-                     , auc_dgx=auc_dgx
+                     #, auc_dgx=auc_dgx
                      , auc_gx=auc_gx
-                     , auc_dx=auc_dx
+                     #, auc_dx=auc_dx
                      , g_step=g_step
                      , d_step=d_step
                      , g_loss=g_loss

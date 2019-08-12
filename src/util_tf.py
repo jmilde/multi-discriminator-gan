@@ -150,12 +150,12 @@ def trim(x, eos, name= 'trim'):
         return x[:,:max_len], not_eos[:,:max_len], max_len
 
 
-def spread_image(x, nrow, ncol, height, width):
+def spread_image(x, nrow, ncol, height, width, colors=-1):
     return tf.reshape(
         tf.transpose(
-            tf.reshape(x, (nrow, ncol, height, width, -1))
+            tf.reshape(x, (nrow, ncol, height, width, colors))
             , (0, 2, 1, 3, 4))
-        , (1, nrow * height, ncol * width, -1))
+        , (1, nrow * height, ncol * width, colors))
 
 
 def get_shape(x, name= 'shape'):
