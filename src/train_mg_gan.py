@@ -1,7 +1,7 @@
 from tqdm import tqdm
 from numpy.random import RandomState
 import os
-
+from PIL import Image
 try:
     from util_np import np, batch_sample
     from util_tf import pipe, tf, spread_image, batch2
@@ -18,19 +18,27 @@ def prod(iterable):
     from operator import mul
     return reduce(mul, iterable, 1)
 
-def train(anomaly_class = 8, dataset="cifar"):
+def resize_images(imgs, size=[32, 32]):
+    # convert float type to integer
+    resized_imgs = np.asarray([np.asarray(Image.fromarray(img).resize(size=size, resample=Image.ANTIALIAS))
+                                       for i, img in enumerate(imgs.astype('uint8'))])
+
+    return np.expand_dims(resized_imgs, -1)
+
+
+def train(anomaly_class = 8, dataset="cifar", n_dis=1):
     #set gpu
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     path_log = "/cache/tensorboard-logdir/mg"
     path_ckpt = "/project/multi-discriminator-gan/ckpt"
     path_data = "/project/multi-discriminator-gan/data"
 
-    epochs = 400
-    batch_size = 700
-    dim_btlnk = 32
-    dim_dense = 64
-    n_dis = 5
+    epochs = 100
+    batch_size = 64
+    dim_btlnk = 100
+    dim_d = 64 #dim discriminator
+    dim_g = 64 # dim generator
     context_weight = 1
 
     #reset graphs and fix seeds
@@ -40,33 +48,36 @@ def train(anomaly_class = 8, dataset="cifar"):
     tf.set_random_seed(0)
 
     #load data
-    if dataset="ucsd": #todo
+    if dataset=="ucsd": #todo
         folders = os.listdir(datapath)
     else:
         if dataset=="mnist":
             (train_images, train_labels),(test_images, test_labels) = tf.keras.datasets.mnist.load_data()
+            train_images = resize_images(train_images)
+            test_images = resize_images(test_images)
         else:
             (train_images, train_labels),(test_images, test_labels) = tf.keras.datasets.cifar10.load_data()
             train_labels = np.reshape(train_labels, len(train_labels))
             test_labels = np.reshape(test_labels, len(test_labels))
 
         inlier = train_images[train_labels!=anomaly_class]
-        data_size = prod(inlier[0].shape)
+        #data_size = prod(inlier[0].shape)
         img_size= inlier[0].shape[0]
-        color_size = inlier[0].shape[-1]
-        x_train = np.reshape(inlier, (len(inlier), data_size))/255
+        channel = inlier[0].shape[-1]
+        x_train = inlier/255
+        #x_train = np.reshape(inlier, (len(inlier), data_size))/255
         #y_train = train_labels[train_labels!=anomaly_class]
         y_train = np.zeros(len(x_train), dtype=np.int8) # dummy
         outlier = train_images[train_labels==anomaly_class]
-        x_test = np.reshape(np.concatenate([outlier, test_images])
-                            ,(len(outlier)+len(test_images), data_size))/255
+        x_test = np.concatenate([outlier, test_images])/255
+        #x_test = np.reshape(np.concatenate([outlier, test_images])
+        #                    ,(len(outlier)+len(test_images), data_size))/255
         y_test= np.concatenate([train_labels[train_labels==anomaly_class], test_labels])
         y_test = [0 if y!=anomaly_class else 1 for y in y_test]
         x_test, y_test = unison_shfl(x_test, np.array(y_test))
+        print(x_train.shape)
 
-
-    dim_x = len(x_train[0])
-    trial = f"{dataset}_mean_dis{n_dis}_{anomaly_class}_b{batch_size}_btlnk{dim_btlnk}_d{dim_dense}"
+    trial = f"{dataset}_mean_dis{n_dis}_{anomaly_class}_b{batch_size}_btlnk{dim_btlnk}_d{dim_d}_g{dim_g}"
 
 
 
@@ -77,7 +88,7 @@ def train(anomaly_class = 8, dataset="cifar"):
     #z = tf.random_normal((batch_size, z_dim))
 
     # load graph
-    mg_gan = MG_GAN.new(dim_x, dim_btlnk, dim_dense, n_dis)
+    mg_gan = MG_GAN.new(img_size, channel, dim_btlnk, dim_d, dim_g, n_dis)
     model = MG_GAN.build(mg_gan, x, y, context_weight)
 
 
@@ -87,7 +98,7 @@ def train(anomaly_class = 8, dataset="cifar"):
     saver = tf.train.Saver()
 
     wrtr = tf.summary.FileWriter(pform(path_log, trial))
-    #wrtr.add_graph(sess.graph)
+    wrtr.add_graph(sess.graph)
 
     ### if load pretrained model
     # pretrain = "modelname"
@@ -101,7 +112,7 @@ def train(anomaly_class = 8, dataset="cifar"):
             , wrtr= wrtr
             , log = tf.summary.merge([tf.summary.scalar('g_loss', model.g_loss)
                                       , tf.summary.scalar('d_loss', model.d_loss)
-                                      , tf.summary.image('gx400', spread_image(model.gx[:400], 20,20, img_size, img_size, color_size))
+                                      , tf.summary.image('gx400', spread_image(model.gx[:400], 20,20, img_size, img_size, channel))
                                       #, tf.summary.scalar("AUC_dgx", model.auc_dgx)
                                       #, tf.summary.scalar("AUC_dx", model.auc_dx)
                                       , tf.summary.scalar("AUC_gx", model.auc_gx)])
@@ -127,4 +138,6 @@ def train(anomaly_class = 8, dataset="cifar"):
 
 if __name__ == "__main__":
     for i in range(0,10):
-        train(i)
+        for n in range(1,4):
+            for d in ["mnist", "cifar"]:
+                train(i, d, n)

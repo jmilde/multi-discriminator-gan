@@ -4,50 +4,126 @@ try:
 except ImportError:
     from src.util import Record, identity, comp, partial
     from src.util_tf import tf, scope, variable, placeholder, Linear, Affine, Normalize, spread_image
+from tensorflow.keras.layers import Conv2DTranspose, BatchNormalization, Conv2D
+
+class Decoder(Record):
+    def __init__(self, dim_x, channel_x, dim_d, name="decoder"):
+        assert dim_x % 16 == 0, "image size has to be a multiple of 16"
+        with scope(name):
+            cngf, tisize = dim_d // 2, 4 # first n_filter=4,
+            while tisize != dim_x:
+                cngf = cngf * 2
+                tisize = tisize * 2
+
+            self.conv0 = Conv2DTranspose(cngf, (4, 4), padding='valid', use_bias=False , name="conv0")
+            self.bn0 = BatchNormalization(name="bn0")
+
+            size_now, i = 4, 1
+            self.conv, self.bn = {}, {}
+            while size_now < dim_x // 2:
+                self.conv[i]= Conv2DTranspose(cngf//2, (4, 4), strides=2,
+                                               padding='same', use_bias=False, name=f"conv{i}" )
+                self.bn[i] = BatchNormalization(name=f"bn{i}")
+                cngf = cngf // 2
+                size_now = size_now*2
+                i+=1
+
+            # final layer, expand the size with 2 and set channels to number of channels of x
+            self.conv_out = Conv2DTranspose(channel_x, (4, 4),strides=2, padding='same', use_bias=False, name="conv_out" )
+
+    def __call__(self, x):
+        # z is input, and first deconvolution layer to size channel * 4 * 4
+        x = tf.nn.relu(self.bn0(self.conv0(x)))
+
+        # size increasing layers
+        for i in sorted(self.conv.keys()):
+            x = tf.nn.relu(self.bn[i](self.conv[i](x)))
+        x = tf.nn.sigmoid(self.conv_out(x))
+        return x
+
+
+
+class Encoder(Record):
+    def __init__(self, dim_x, channel_x, dim_g, name="encoder"):
+        assert dim_x % 16 == 0, "image size has to be a multiple of 16"
+
+        with scope(name):
+            self.conv0 = Conv2D(dim_g, (4, 4), strides=2, padding='same', use_bias=False, name="conv0")
+            size_now = dim_x // 2
+            channel = dim_g
+            i = 1
+            self.conv, self.bn = {}, {}
+            while size_now > 4:
+                channel *= 2 # channel increases, size decreases
+                self.conv[i] = Conv2D(channel, (4, 4), strides=2, padding='same', use_bias=False, name= f"conv{i}")
+                self.bn[i] = BatchNormalization(name=f"bn{i}")
+                size_now = size_now // 2
+                i += 1
+
+    def __call__(self, x):
+
+        # initial layer
+        x = tf.nn.leaky_relu(self.conv0(x))
+
+        # in between layers
+        for i in sorted(self.conv.keys()):
+            x = tf.nn.leaky_relu(self.bn[i](self.conv[i](x)))
+
+
+        return x
+
+
 
 class Gen(Record):
 
-    def __init__(self, dim_x, dim_btlnk, name= 'generator'):
+    def __init__(self, dim_x, channel_x, dim_btlnk, dim_d, dim_g, name= 'generator'):
         self.name = name
         with scope(name):
-            self.lin = Linear(dim_btlnk, dim_x, name= 'lin')
-            self.nrm = Normalize(    dim_btlnk, name= 'nrm')
-            self.lex = Linear(dim_x, dim_btlnk, name= 'lex')
+            self.enc = Encoder(dim_x, channel_x, dim_g)
+            #resize the layer to channel X 1 X 1
+            self.conv_out = Conv2D(dim_btlnk, (4, 4), padding='valid', use_bias=False, name="conv_out")
+            self.dec = Decoder(dim_x, channel_x, dim_d)
+
 
     def __call__(self, x, name= None):
         with scope(name or self.name):
-            #return tf.clip_by_value(self.lex(self.nrm(tf.nn.relu(self.lin(x)))), 0.0, 1.0)
-            return tf.nn.sigmoid(self.lex(self.nrm(tf.nn.relu(self.lin(x)))))
+            x = self.enc(x)
+            # final layer
+            x = self.conv_out(x)
+            x = self.dec(x)
+
+            return x
+
+
 
 class Dis(Record):
 
-    def __init__(self, dim_x, dim_d, name= 'discriminator'):
+    def __init__(self, dim_x, channel_x, dim_g, name= 'discriminator'):
         self.name = name
         with scope(name):
-            self.lin = Linear(dim_d, dim_x, name= 'lin')
-            self.nrm = Normalize(    dim_d, name= 'nrm')
-            self.lin2 = Linear(dim_d, dim_d, name= 'lin2')
-            self.nrm2 = Normalize(    dim_d, name= 'nrm2')
-            self.lex = Linear(1, dim_d, name= 'lex')
+            self.enc = Encoder(dim_x, channel_x, dim_g)
+            self.conv_out = Conv2D(1, (4, 4), padding='valid', use_bias=False, name="conv_out")
 
     def __call__(self, x, name= None):
         with scope(name or self.name):
-            x = self.nrm(tf.nn.leaky_relu(self.lin(x)))
-            x = self.nrm2(tf.nn.leaky_relu(self.lin2(x)))
-            return tf.clip_by_value(self.lex(x), 0.0, 1.0)
+            x = self.enc(x)
+            x = self.conv_out(x)
+            return tf.nn.sigmoid(x)
+
+
 
 
 class MG_GAN(Record):
-
     @staticmethod
-    def new(dim_x, dim_btlnk, dim_d, n_dis):
+    def new(dim_x, channel_x, dim_btlnk, dim_d, dim_g,  n_dis):
         return MG_GAN(dim_x= dim_x
-                      , gen= Gen(dim_x, dim_btlnk)
-                      , dis= {n:Dis(dim_x, dim_d, name=f"discriminator_{n}") for n in range(n_dis)})
+                      , channel_x= channel_x
+                      , gen= Gen(dim_x, channel_x, dim_btlnk, dim_d, dim_g)
+                      , dis= {n:Dis(dim_x, channel_x, dim_g, name=f"discriminator_{n}") for n in range(n_dis)})
 
     def build(self, x, y, weight):
         with scope("x"):
-            x = placeholder(tf.float32, [None, self.dim_x], x, "x")
+            x = placeholder(tf.float32, [None, self.dim_x, self.dim_x, self.channel_x], x, "x")
         with scope("y"):
             y = placeholder(tf.float32, [None], y, "y")
 
@@ -78,7 +154,7 @@ class MG_GAN(Record):
         with scope("AUC"):
             #_, auc_dgx = tf.metrics.auc(y, tf.nn.sigmoid(tf.reduce_mean(list(dgx.values()))))
             #_, auc_dx = tf.metrics.auc(y, tf.nn.sigmoid(tf.reduce_mean(list(dx.values()))))
-            _, auc_gx = tf.metrics.auc(y, tf.reduce_mean((x-gx)**2, axis=1))
+            _, auc_gx = tf.metrics.auc(y, tf.reduce_mean((x-gx)**2, axis=(1,2,3)))
 
         g_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator")
         d_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator")
