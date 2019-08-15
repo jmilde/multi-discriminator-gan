@@ -46,12 +46,21 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
     tf.set_random_seed(0)
 
     #load data
-    if dataset=="ucsd": #todo
-        folders = os.listdir(datapath)
+    if dataset=="ucsd1":
+        x_train = np.load("./data/ucsd1_train")["arr_0"]
+        y_train = np.zeros(len(x_train), dtype=np.int8)
+        x_test = np.load("./data/ucsd1_test")["arr_0"]
+        y_test = np.ones(len(x_train), dtype=np.int8)
+    elif dataset=="uscd2":
+        x_train = np.load("./data/ucsd2_train")["arr_0"]
+        y_train = np.zeros(len(x_train), dtype=np.int8)
+        x_test = np.load("./data/ucsd2_test")["arr_0"]
+        y_test = np.ones(len(x_train), dtype=np.int8)
+
     else:
         if dataset=="mnist":
             (train_images, train_labels),(test_images, test_labels) = tf.keras.datasets.mnist.load_data()
-            train_images = resize_images(train_images)
+            x_images = resize_images(train_images)
             test_images = resize_images(test_images)
         else:
             (train_images, train_labels),(test_images, test_labels) = tf.keras.datasets.cifar10.load_data()
@@ -136,14 +145,22 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
 
 
 if __name__ == "__main__":
-    for i in range(0,10):
-        for n in range(1,4):
-            for d in ["mnist", "cifar"]:
-                if d=="mnist":
-                    epoch=15
-                    for b in [16,32]:
-                        train(i, d, n, epoch, b)
-                elif d=="cifar":
-                    epoch=25
-                    for b in [16,32,64]:
-                        train(i, d, n, epoch, b)
+    train(0, "ucsd1", 1, 25, 64)
+
+#    for n in range(1,4):
+#        for d in ["ucsd1", "mnist", "cifar"]:
+#            if d=="mnist":
+#                epoch=15
+#                for i in range(0,10):
+#                    for b in [16,32]:
+#                        train(i, d, n, epoch, b)
+#            elif d=="cifar":
+#                epoch=25
+#                for i in range(0,10):
+#                    for b in [16,32,64]:
+#                        train(i, d, n, epoch, b)
+#            if d=="ucsd1":
+#                epoch=25
+#                for b in [16,32,64]:
+#                    train(0, d, n, epoch, b) #0=dummy
+#
