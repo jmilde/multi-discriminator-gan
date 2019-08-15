@@ -2,13 +2,7 @@ import numpy as np
 import os
 from PIL import Image
 from src.util_io import pform
-
-def resize_images(imgs, size=[32, 32]):
-    # convert float type to integer
-    resized_imgs = np.asarray([np.asarray(Image.fromarray(img).resize(size=size, resample=Image.ANTIALIAS))
-                                       for i, img in enumerate(imgs.astype('uint8'))])
-
-    return np.expand_dims(resized_imgs, -1)
+import re
 
 def get_data(path, searchword, size=[240,160]):
     try:
@@ -60,7 +54,7 @@ train_x, train_y =  get_data(path1_train, "Train", size=[192,128])
 np.savez_compressed("./data/ucsd1_train_x", train_x)
 np.savez_compressed("./data/ucsd1_train_y", train_y)
 
-test_x, test_y =  get_data(path1_test, "Test")
+test_x, test_y =  get_data(path1_test, "Test",size=[192,128])
 np.savez_compressed("./data/ucsd1_test_x", test_x)
 np.savez_compressed("./data/ucsd1_test_y", test_y)
 

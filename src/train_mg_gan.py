@@ -28,7 +28,7 @@ def resize_images(imgs, size=[32, 32]):
 
 def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
     #set gpu
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
     path_log = "/cache/tensorboard-logdir/mg"
     path_ckpt = "/project/multi-discriminator-gan/ckpt"
@@ -47,15 +47,16 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
 
     #load data
     if dataset=="ucsd1":
-        x_train = np.load("./data/ucsd1_train")["arr_0"]
-        y_train = np.zeros(len(x_train), dtype=np.int8)
-        x_test = np.load("./data/ucsd1_test")["arr_0"]
-        y_test = np.ones(len(x_train), dtype=np.int8)
+        x_train = np.load("./data/ucsd1_train_x")["arr_0"]
+        y_train = np.load("./data/ucsd1_train_y")["arr_0"]
+        x_test = np.load("./data/ucsd1_test_x")["arr_0"]
+        y_test = np.load("./data/ucsd1_test_y")["arr_0"]
+
     elif dataset=="uscd2":
-        x_train = np.load("./data/ucsd2_train")["arr_0"]
-        y_train = np.zeros(len(x_train), dtype=np.int8)
-        x_test = np.load("./data/ucsd2_test")["arr_0"]
-        y_test = np.ones(len(x_train), dtype=np.int8)
+        x_train = np.load("./data/ucsd2_train_x")["arr_0"]
+        y_train = np.load("./data/ucsd2_train_y")["arr_0"]
+        x_test = np.load("./data/ucsd2_test_x")["arr_0"]
+        y_test = np.load("./data/ucsd2_test_y")["arr_0"]
 
     else:
         if dataset=="mnist":
