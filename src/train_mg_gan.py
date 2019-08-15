@@ -26,17 +26,15 @@ def resize_images(imgs, size=[32, 32]):
     return np.expand_dims(resized_imgs, -1)
 
 
-def train(anomaly_class = 8, dataset="cifar", n_dis=1):
+def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
     #set gpu
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
     path_log = "/cache/tensorboard-logdir/mg"
     path_ckpt = "/project/multi-discriminator-gan/ckpt"
     path_data = "/project/multi-discriminator-gan/data"
 
-    epochs = 100
     batch_size = 64
-    dim_btlnk = 100
     dim_d = 64 #dim discriminator
     dim_g = 64 # dim generator
     context_weight = 1
@@ -112,6 +110,7 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1):
             , wrtr= wrtr
             , log = tf.summary.merge([tf.summary.scalar('g_loss', model.g_loss)
                                       , tf.summary.scalar('d_loss', model.d_loss)
+                                      , tf.summary.image("gx", model.gx, max_outputs=5)
                                       , tf.summary.image('gx400', spread_image(model.gx[:400], 20,20, img_size, img_size, channel))
                                       #, tf.summary.scalar("AUC_dgx", model.auc_dgx)
                                       #, tf.summary.scalar("AUC_dx", model.auc_dx)
@@ -140,4 +139,11 @@ if __name__ == "__main__":
     for i in range(0,10):
         for n in range(1,4):
             for d in ["mnist", "cifar"]:
-                train(i, d, n)
+                if d=="mnist":
+                    epoch=15
+                    for b in [16,32]:
+                        train(i, d, n, epoch, b)
+                elif d=="cifar":
+                    epoch=25
+                    for b in [16,32,64]:
+                        train(i, d, n, epoch, b)
