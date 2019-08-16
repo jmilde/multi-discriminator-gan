@@ -3,12 +3,12 @@ from numpy.random import RandomState
 import os
 from PIL import Image
 try:
-    from util_np import np, batch_sample
+    from util_np import np, batch_sample, partition
     from util_tf import pipe, tf, spread_image, batch2
     from util_io import pform
     from models.mg_gan import MG_GAN
 except ImportError:
-    from src.util_np import np, batch_sample,unison_shfl
+    from src.util_np import np, batch_sample,unison_shfl, partition
     from src.util_tf import pipe, tf, spread_image, batch2
     from src.util_io import pform
     from src.mg_gan import MG_GAN
@@ -26,15 +26,14 @@ def resize_images(imgs, size=[32, 32]):
     return np.expand_dims(resized_imgs, -1)
 
 
-def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
+def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, batch_size=64):
     #set gpu
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
     path_log = "/cache/tensorboard-logdir/mg"
     path_ckpt = "/project/multi-discriminator-gan/ckpt"
     path_data = "/project/multi-discriminator-gan/data"
 
-    batch_size = 64
     dim_d = 64 #dim discriminator
     dim_g = 64 # dim generator
     context_weight = 1
@@ -47,16 +46,16 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
 
     #load data
     if dataset=="ucsd1":
-        x_train = np.load("./data/ucsd1_train_x")["arr_0"]
-        y_train = np.load("./data/ucsd1_train_y")["arr_0"]
-        x_test = np.load("./data/ucsd1_test_x")["arr_0"]
-        y_test = np.load("./data/ucsd1_test_y")["arr_0"]
+        x_train = np.load("./data/ucsd1_train_x.npz")["arr_0"]/255
+        y_train = np.load("./data/ucsd1_train_y.npz")["arr_0"]
+        x_test = np.load("./data/ucsd1_test_x.npz")["arr_0"]/255
+        y_test = np.load("./data/ucsd1_test_y.npz")["arr_0"]
 
     elif dataset=="uscd2":
-        x_train = np.load("./data/ucsd2_train_x")["arr_0"]
-        y_train = np.load("./data/ucsd2_train_y")["arr_0"]
-        x_test = np.load("./data/ucsd2_test_x")["arr_0"]
-        y_test = np.load("./data/ucsd2_test_y")["arr_0"]
+        x_train = np.load("./data/ucsd2_train_x.npz")["arr_0"]
+        y_train = np.load("./data/ucsd2_train_y.npz")["arr_0"]
+        x_test = np.load("./data/ucsd2_test_x.npz")["arr_0"]
+        y_test = np.load("./data/ucsd2_test_y.npz")["arr_0"]
 
     else:
         if dataset=="mnist":
@@ -69,9 +68,7 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
             test_labels = np.reshape(test_labels, len(test_labels))
 
         inlier = train_images[train_labels!=anomaly_class]
-        #data_size = prod(inlier[0].shape)
-        img_size= inlier[0].shape[0]
-        channel = inlier[0].shape[-1]
+        #data_size = prod(inlier[0].sha
         x_train = inlier/255
         #x_train = np.reshape(inlier, (len(inlier), data_size))/255
         #y_train = train_labels[train_labels!=anomaly_class]
@@ -85,6 +82,8 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
         x_test, y_test = unison_shfl(x_test, np.array(y_test))
         print(x_train.shape)
 
+    img_size= x_train[0].shape[0]
+    channel = x_train[0].shape[-1]
     trial = f"{dataset}_mean_dis{n_dis}_{anomaly_class}_b{batch_size}_btlnk{dim_btlnk}_d{dim_d}_g{dim_g}"
 
 
@@ -116,6 +115,27 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
     init = tf.group(tf.global_variables_initializer(), tf.variables_initializer(var_list=auc_vars))
     sess.run(init)
 
+
+    if "ucsd" in dataset:
+        summary_test = tf.summary.merge((tf.summary.scalar('g_loss', model.g_loss)
+                                         , tf.summary.scalar('d_loss', model.d_loss)
+                                         , tf.summary.scalar("AUC_gx", model.auc_gx)))
+        summary_images = tf.summary.merge(tf.summary.image("gx", model.gx, max_outputs=8)
+                                          , tf.summary.image("x", model.x, max_outputs=8))
+
+    def summ(step):
+        fetches = model.g_loss, model.d_loss, model.auc_gx
+        results = map(np.mean, zip(*(
+            sess.run(fetches,
+                     {model['x']: x_test[i:j]
+                      , model['y']: y_test[i:j]})
+            for i, j in partition(len(x_test), batch_size, discard=False))))
+        results = list(results)
+        wrtr.add_summary(sess.run(summary_test, dict(zip(fetches, results))), step)
+        # bike, skateboard, grasswalk, shopping cart, car, normal, normal, grass
+        wrtr.add_summary(sess.run(summary_images, {model.x:x_test[[990, 1851, 2140, 2500, 2780, 2880, 3380, 3580]]}), step)
+        wrtr.flush()
+
     def log(step
             , wrtr= wrtr
             , log = tf.summary.merge([tf.summary.scalar('g_loss', model.g_loss)
@@ -140,13 +160,18 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32):
             sess.run(model['d_step'])
             sess.run(model['g_step'])
         # tensorboard writer
-        log(sess.run(model["step"])//steps_per_epoch)
-
+        if "ucsd" in dataset:
+            summ(sess.run(model["step"])//steps_per_epoch)
+        else:
+            log(sess.run(model["step"])//steps_per_epoch)
     saver.save(sess, pform(path_ckpt, trial), write_meta_graph=False)
 
 
 if __name__ == "__main__":
-    train(0, "ucsd1", 1, 25, 64)
+    epoch=25
+    for n in range(1,4):
+        for b in [128]:
+            train(0, "ucsd1", n, epoch, b, batch_size=32)
 
 #    for n in range(1,4):
 #        for d in ["ucsd1", "mnist", "cifar"]:

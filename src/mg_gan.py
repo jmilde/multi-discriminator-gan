@@ -123,7 +123,7 @@ class MG_GAN(Record):
 
     def build(self, x, y, weight):
         with scope("x"):
-            x = placeholder(tf.float32, [None, self.dim_x, self.dim_x, self.channel_x], x, "x")
+            x = placeholder(tf.float32, [None, None, None, self.channel_x], x, "x")
         with scope("y"):
             y = placeholder(tf.float32, [None], y, "y")
 
