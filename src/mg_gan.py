@@ -121,7 +121,7 @@ class MG_GAN(Record):
                       , gen= Gen(dim_x, channel_x, dim_btlnk, dim_d, dim_g)
                       , dis= {n:Dis(dim_x, channel_x, dim_g, name=f"discriminator_{n}") for n in range(n_dis)})
 
-    def build(self, x, y, weight):
+    def build(self, x, y, weight, loss):
         with scope("x"):
             x = placeholder(tf.float32, [None, None, None, self.channel_x], x, "x")
         with scope("y"):
@@ -139,8 +139,12 @@ class MG_GAN(Record):
                     tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(dx[k])*0.9, logits=dx[k])))
                 d_loss_fake.append(tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(dgx[k]), logits=dgx[k])))
 
-            # mean feedback
-            d_loss = tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_fake)
+            if loss=="mean":
+                d_loss = tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_fake)
+            elif loss=="max":
+                d_loss = tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_fake)
+            elif loss=="softmax":
+                d_loss = tf.reduce_mean(d_loss_real) + tf.reduce_mean(d_loss_fake)
 
             epsilon = 1e-10
             loss_rec = tf.reduce_mean(-tf.reduce_sum(x * tf.log(epsilon+gx) +
@@ -148,8 +152,14 @@ class MG_GAN(Record):
             loss_g_fake = [tf.reduce_mean(
                 tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(dgx_), logits=dgx_)) for dgx_ in dgx.values()]
 
-            # mean feedback
-            g_loss = weight* loss_rec + tf.reduce_mean(loss_g_fake)
+            if loss=="mean":
+                g_loss = weight* loss_rec + tf.reduce_mean(loss_g_fake)
+            elif loss=="max": # max picks biggest loss = best discriminators feedback is used
+                g_loss = weight* loss_rec + tf.reduce_max(loss_g_fake)
+            elif loss="softmax":
+                g_loss = weight* loss_rec + tf.reduce_mean(tf.nn.softmax(loss_g_fake)*loss_g_fake)
+
+
 
         with scope("AUC"):
             #_, auc_dgx = tf.metrics.auc(y, tf.nn.sigmoid(tf.reduce_mean(list(dgx.values()))))

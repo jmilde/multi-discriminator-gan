@@ -26,7 +26,7 @@ def resize_images(imgs, size=[32, 32]):
     return np.expand_dims(resized_imgs, -1)
 
 
-def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, batch_size=64):
+def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, batch_size=64, loss):
     #set gpu
     os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
@@ -84,7 +84,7 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, 
 
     img_size= x_train[0].shape[0]
     channel = x_train[0].shape[-1]
-    trial = f"{dataset}_mean_dis{n_dis}_{anomaly_class}_b{batch_size}_btlnk{dim_btlnk}_d{dim_d}_g{dim_g}"
+    trial = f"{dataset}_{loss}_dis{n_dis}_{anomaly_class}_b{batch_size}_btlnk{dim_btlnk}_d{dim_d}_g{dim_g}"
 
 
 
@@ -120,8 +120,8 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, 
         summary_test = tf.summary.merge((tf.summary.scalar('g_loss', model.g_loss)
                                          , tf.summary.scalar('d_loss', model.d_loss)
                                          , tf.summary.scalar("AUC_gx", model.auc_gx)))
-        summary_images = tf.summary.merge(tf.summary.image("gx", model.gx, max_outputs=8)
-                                          , tf.summary.image("x", model.x, max_outputs=8))
+        summary_images = tf.summary.merge((tf.summary.image("gx", model.gx, max_outputs=8)
+                                          , tf.summary.image("x", model.x, max_outputs=8)))
 
     def summ(step):
         fetches = model.g_loss, model.d_loss, model.auc_gx
@@ -168,25 +168,18 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, 
 
 
 if __name__ == "__main__":
-    epoch=25
+    btlnk_dim= 64
     for n in range(1,4):
-        for b in [128]:
-            train(0, "ucsd1", n, epoch, b, batch_size=32)
-
-#    for n in range(1,4):
-#        for d in ["ucsd1", "mnist", "cifar"]:
-#            if d=="mnist":
-#                epoch=15
-#                for i in range(0,10):
-#                    for b in [16,32]:
-#                        train(i, d, n, epoch, b)
-#            elif d=="cifar":
-#                epoch=25
-#                for i in range(0,10):
-#                    for b in [16,32,64]:
-#                        train(i, d, n, epoch, b)
-#            if d=="ucsd1":
-#                epoch=25
-#                for b in [16,32,64]:
-#                    train(0, d, n, epoch, b) #0=dummy
-#
+        for l in ["mean", "max"]:
+            for d in ["ucsd1", "mnist", "cifar"]:
+                if d=="mnist":
+                    epoch=15
+                    for i in range(0,10):
+                        train(i, d, n, epoch, btlnk_dimm, l)
+                elif d=="cifar":
+                    epoch=25
+                    for i in range(0,10):
+                            train(i, d, n, epoch, btlnk_dim, l)
+                if d=="ucsd1":
+                    epoch=25
+                    train(0, d, n, epoch, btlnk_dim,l) #0=dummy
