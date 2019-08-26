@@ -25,18 +25,14 @@ def resize_images(imgs, size=[32, 32]):
 
     return np.expand_dims(resized_imgs, -1)
 
-
-def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, batch_size=64, loss):
+def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
+          batch_size=64, loss="mean", context_weight=1, dim_d=64, dim_g=64, extra_layers=0):
     #set gpu
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 
-    path_log = "/cache/tensorboard-logdir/mg"
+    path_log = f"/cache/tensorboard-logdir/{dataset}"
     path_ckpt = "/project/multi-discriminator-gan/ckpt"
     path_data = "/project/multi-discriminator-gan/data"
-
-    dim_d = 64 #dim discriminator
-    dim_g = 64 # dim generator
-    context_weight = 1
 
     #reset graphs and fix seeds
     tf.reset_default_graph()
@@ -82,9 +78,10 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, 
         x_test, y_test = unison_shfl(x_test, np.array(y_test))
         print(x_train.shape)
 
-    img_size= x_train[0].shape[0]
+    img_size_x= x_train[0].shape[0]
+    img_size_y= x_train[0].shape[1]
     channel = x_train[0].shape[-1]
-    trial = f"{dataset}_{loss}_dis{n_dis}_{anomaly_class}_b{batch_size}_btlnk{dim_btlnk}_d{dim_d}_g{dim_g}"
+    trial = f"{dataset}_{loss}_dis{n_dis}_{anomaly_class}_w{context_weight}_b{batch_size}_btlnk{dim_btlnk}_d{dim_d}_g{dim_g}e{extra_layers}"
 
 
 
@@ -95,8 +92,8 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, 
     #z = tf.random_normal((batch_size, z_dim))
 
     # load graph
-    mg_gan = MG_GAN.new(img_size, channel, dim_btlnk, dim_d, dim_g, n_dis)
-    model = MG_GAN.build(mg_gan, x, y, context_weight)
+    mg_gan = MG_GAN.new(img_size_x, channel, dim_btlnk, dim_d, dim_g, n_dis, extra_layers=0)
+    model = MG_GAN.build(mg_gan, x, y, context_weight, loss)
 
 
     # start session, initialize variables
@@ -116,15 +113,29 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, 
     sess.run(init)
 
 
-    if "ucsd" in dataset:
-        summary_test = tf.summary.merge((tf.summary.scalar('g_loss', model.g_loss)
-                                         , tf.summary.scalar('d_loss', model.d_loss)
-                                         , tf.summary.scalar("AUC_gx", model.auc_gx)))
+    #if "ucsd" in dataset:
+    summary_test = tf.summary.merge([tf.summary.scalar('g_loss', model.g_loss)
+                                         , tf.summary.scalar("lambda", model.lam)
+                                         , tf.summary.scalar('d_loss_mean', tf.reduce_mean(model.d_loss))
+                                         #, tf.summary.scalar('d_loss', model.d_loss)
+                                         , tf.summary.scalar("AUC_gx", model.auc_gx)])
+    if dataset=="ucsd1":
         summary_images = tf.summary.merge((tf.summary.image("gx", model.gx, max_outputs=8)
-                                          , tf.summary.image("x", model.x, max_outputs=8)))
+                                               , tf.summary.image("x", model.x, max_outputs=8)
+                                               , tf.summary.image('gx400', spread_image(tf.concat([model.gx, model.x], axis=1), 8,2, img_size_x, img_size_y, channel))))
+    else:
+        summary_images = tf.summary.merge((tf.summary.image("gx", model.gx, max_outputs=8)
+                                               , tf.summary.image('gx400', spread_image(model.gx[:400], 20,20, img_size, img_size, channel))
+                                               , tf.summary.image("x", model.x, max_outputs=8)))
+
+
+    if n_dis>1:
+        d_wrtr = {i: tf.summary.FileWriter(pform(path_log, trial+f"d{i}")) for i in range(n_dis)}
+        summary_discr= {i: tf.summary.scalar('d_loss_multi', model.d_loss[i])
+                                         for i in range(n_dis)}
 
     def summ(step):
-        fetches = model.g_loss, model.d_loss, model.auc_gx
+        fetches = model.g_loss, model.lam, tf.reduce_mean(model.d_loss), model.auc_gx
         results = map(np.mean, zip(*(
             sess.run(fetches,
                      {model['x']: x_test[i:j]
@@ -132,25 +143,45 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, 
             for i, j in partition(len(x_test), batch_size, discard=False))))
         results = list(results)
         wrtr.add_summary(sess.run(summary_test, dict(zip(fetches, results))), step)
-        # bike, skateboard, grasswalk, shopping cart, car, normal, normal, grass
-        wrtr.add_summary(sess.run(summary_images, {model.x:x_test[[990, 1851, 2140, 2500, 2780, 2880, 3380, 3580]]}), step)
+
+        if dataset=="ucsd1":
+            # bike, skateboard, grasswalk, shopping cart, car, normal, normal, grass
+
+            wrtr.add_summary(sess.run(summary_images, {model.x:x_test[[990, 1851, 2140, 2500, 2780, 2880, 3380, 3580]]}), step)
+        else:
+            wrtr.add_summary(sess.run(summary_images, {model.x:x_test}), step)
         wrtr.flush()
 
-    def log(step
-            , wrtr= wrtr
-            , log = tf.summary.merge([tf.summary.scalar('g_loss', model.g_loss)
-                                      , tf.summary.scalar('d_loss', model.d_loss)
-                                      , tf.summary.image("gx", model.gx, max_outputs=5)
-                                      , tf.summary.image('gx400', spread_image(model.gx[:400], 20,20, img_size, img_size, channel))
-                                      #, tf.summary.scalar("AUC_dgx", model.auc_dgx)
-                                      #, tf.summary.scalar("AUC_dx", model.auc_dx)
-                                      , tf.summary.scalar("AUC_gx", model.auc_gx)])
-            , y= y_test
-            , x= x_test):
-        wrtr.add_summary(sess.run(log, {model["x"]:x
-                                        , model["y"]:y})
-                         , step)
-        wrtr.flush()
+    def summ_discr(step):
+        fetches = model.d_loss
+        results = map(np.mean, zip(*(
+            sess.run(fetches,
+                     {model['x']: x_test[i:j]
+                      , model['y']: y_test[i:j]})
+            for i, j in partition(len(x_test), batch_size, discard=False))))
+        results = list(results)
+
+        if n_dis>1:
+            for i in range(n_dis):
+                d_wrtr[i].add_summary(sess.run(summary_discr[i], dict(zip(fetches, results))), step)
+                d_wrtr[i].flush()
+
+    #def log(step
+    #        , wrtr= wrtr
+    #        , log = tf.summary.merge([tf.summary.scalar('g_loss', model.g_loss)
+    #                                  , tf.summary.scalar('d_loss', tf.reduce_mean(model.d_loss))
+    #                                  , tf.summary.scalar("lambda", model.lam)
+    #                                  , tf.summary.image("gx", model.gx, max_outputs=5)
+    #                                  , tf.summary.image('gx400', spread_image(model.gx[:400], 20,20, img_size, img_size, channel))
+    #                                  #, tf.summary.scalar("AUC_dgx", model.auc_dgx)
+    #                                  #, tf.summary.scalar("AUC_dx", model.auc_dx)
+    #                                  , tf.summary.scalar("AUC_gx", model.auc_gx)])
+    #        , y= y_test
+    #        , x= x_test):
+    #    wrtr.add_summary(sess.run(log, {model["x"]:x
+    #                                    , model["y"]:y})
+    #                     , step)
+    #    wrtr.flush()
 
 
     steps_per_epoch = len(x_train)//batch_size-1
@@ -160,26 +191,53 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32, 
             sess.run(model['d_step'])
             sess.run(model['g_step'])
         # tensorboard writer
-        if "ucsd" in dataset:
-            summ(sess.run(model["step"])//steps_per_epoch)
-        else:
-            log(sess.run(model["step"])//steps_per_epoch)
+        #if "ucsd" in dataset:
+        summ(sess.run(model["step"])//steps_per_epoch)
+        #else:
+        #    log(sess.run(model["step"])//steps_per_epoch)
+        if n_dis>1:
+            summ_discr(sess.run(model["step"])//steps_per_epoch)
+
     saver.save(sess, pform(path_ckpt, trial), write_meta_graph=False)
 
 
 if __name__ == "__main__":
-    btlnk_dim= 64
-    for n in range(1,4):
-        for l in ["mean", "max"]:
-            for d in ["ucsd1", "mnist", "cifar"]:
-                if d=="mnist":
-                    epoch=15
-                    for i in range(0,10):
-                        train(i, d, n, epoch, btlnk_dimm, l)
-                elif d=="cifar":
-                    epoch=25
-                    for i in range(0,10):
-                            train(i, d, n, epoch, btlnk_dim, l)
-                if d=="ucsd1":
-                    epoch=25
-                    train(0, d, n, epoch, btlnk_dim,l) #0=dummy
+    btlnk_dim = 32
+    batch_size = 64
+    extra_layers = 0
+    w=1
+    for w in [1, 0.5, 2]:
+        for method in ["mean", "max", "softmax"]:
+            for n in range(4,6):
+                for dim in [64]: #dim of encoder/decoder
+                    for d in ["ucsd1", "mnist", "cifar"]:
+
+                        if d=="cifar":
+                            epoch=25
+                            for i in range(0,10):
+                                train(i, d, n, epoch, btlnk_dim, batch_size,
+                                      method, w, dim, dim, extra_layers)
+                        if d=="ucsd1":
+                            epoch=100
+                            train(0, d, n, epoch, btlnk_dim, batch_size,
+                                  method, w, dim, dim, extra_layers) #0=dummy
+
+                        if d=="mnist":
+                            epoch=15
+                            for i in range(0,10):
+                                train(i, d, n, epoch, btlnk_dim, batch_size,
+                                      method, w, dim, dim, extra_layers)
+#    for n in range(1,4):
+#        for l in ["mean", "max"]:
+#            for d in ["ucsd1", "mnist", "cifar"]:
+#                if d=="mnist":
+#                    epoch=15
+#                    for i in range(0,10):
+#                        train(i, d, n, epoch, btlnk_dimm, batch_size l)
+#                elif d=="cifar":
+#                    epoch=25
+#                    for i in range(0,10):
+#                            train(i, d, n, epoch, btlnk_dim, batch_size, l)
+#                if d=="ucsd1":
+#                    epoch=25
+#                    train(0, d, n, epoch, btlnk_dim, batch_size,l) #0=dummy
