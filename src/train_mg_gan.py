@@ -26,9 +26,10 @@ def resize_images(imgs, size=[32, 32]):
     return np.expand_dims(resized_imgs, -1)
 
 def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
-          batch_size=64, loss="mean", context_weight=1, dim_d=64, dim_g=64, extra_layers=0):
+          batch_size=64, loss="mean", context_weight=1, dim_d=64, dim_g=64, extra_layers=0, gpu="0"):
+
     #set gpu
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = gpu
 
     path_log = f"/cache/tensorboard-logdir/{dataset}"
     path_ckpt = "/project/multi-discriminator-gan/ckpt"
@@ -56,7 +57,7 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
     else:
         if dataset=="mnist":
             (train_images, train_labels),(test_images, test_labels) = tf.keras.datasets.mnist.load_data()
-            x_images = resize_images(train_images)
+            train_images = resize_images(train_images)
             test_images = resize_images(test_images)
         else:
             (train_images, train_labels),(test_images, test_labels) = tf.keras.datasets.cifar10.load_data()
@@ -76,12 +77,11 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
         y_test= np.concatenate([train_labels[train_labels==anomaly_class], test_labels])
         y_test = [0 if y!=anomaly_class else 1 for y in y_test]
         x_test, y_test = unison_shfl(x_test, np.array(y_test))
-        print(x_train.shape)
 
     img_size_x= x_train[0].shape[0]
     img_size_y= x_train[0].shape[1]
     channel = x_train[0].shape[-1]
-    trial = f"{dataset}_{loss}_dis{n_dis}_{anomaly_class}_w{context_weight}_b{batch_size}_btlnk{dim_btlnk}_d{dim_d}_g{dim_g}e{extra_layers}"
+    trial = f"{dataset}_{loss}_dis{n_dis}_{anomaly_class}_w{context_weight}_btlnk{dim_btlnk}_d{dim_d}_g{dim_g}e{extra_layers}"
 
 
 
@@ -125,14 +125,15 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
                                                , tf.summary.image('gx400', spread_image(tf.concat([model.gx, model.x], axis=1), 8,2, img_size_x, img_size_y, channel))))
     else:
         summary_images = tf.summary.merge((tf.summary.image("gx", model.gx, max_outputs=8)
-                                               , tf.summary.image('gx400', spread_image(model.gx[:400], 20,20, img_size, img_size, channel))
+                                               , tf.summary.image('gx400', spread_image(model.gx[:400], 20,20, img_size_x, img_size_y, channel))
                                                , tf.summary.image("x", model.x, max_outputs=8)))
 
 
     if n_dis>1:
-        d_wrtr = {i: tf.summary.FileWriter(pform(path_log, trial+f"d{i}")) for i in range(n_dis)}
+        d_wrtr = {i: tf.summary.FileWriter(pform(path_log, trial+f"d{i}"))
+                  for i in range(n_dis)}
         summary_discr= {i: tf.summary.scalar('d_loss_multi', model.d_loss[i])
-                                         for i in range(n_dis)}
+                        for i in range(n_dis)}
 
     def summ(step):
         fetches = model.g_loss, model.lam, tf.reduce_mean(model.d_loss), model.auc_gx
@@ -146,7 +147,6 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
 
         if dataset=="ucsd1":
             # bike, skateboard, grasswalk, shopping cart, car, normal, normal, grass
-
             wrtr.add_summary(sess.run(summary_images, {model.x:x_test[[990, 1851, 2140, 2500, 2780, 2880, 3380, 3580]]}), step)
         else:
             wrtr.add_summary(sess.run(summary_images, {model.x:x_test}), step)
@@ -160,10 +160,10 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
                       , model['y']: y_test[i:j]})
             for i, j in partition(len(x_test), batch_size, discard=False))))
         results = list(results)
-
-        if n_dis>1:
+        if n_dis>1: # put all losses of the discriminators in one plot
             for i in range(n_dis):
                 d_wrtr[i].add_summary(sess.run(summary_discr[i], dict(zip(fetches, results))), step)
+                #d_wrtr[i].add_summary(sess.run(summary_discr[i], dict([(fetches[i], results[i])])), step)
                 d_wrtr[i].flush()
 
     #def log(step
@@ -202,42 +202,82 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
 
 
 if __name__ == "__main__":
+    ###########################
+    run="4u5" #"2u3" # "basic", "4u5"
+    ###########################
     btlnk_dim = 32
     batch_size = 64
     extra_layers = 0
     w=1
-    for w in [1, 0.5, 2]:
-        for method in ["mean", "max", "softmax"]:
-            for n in range(4,6):
-                for dim in [64]: #dim of encoder/decoder
-                    for d in ["ucsd1", "mnist", "cifar"]:
 
-                        if d=="cifar":
-                            epoch=25
-                            for i in range(0,10):
-                                train(i, d, n, epoch, btlnk_dim, batch_size,
-                                      method, w, dim, dim, extra_layers)
-                        if d=="ucsd1":
-                            epoch=100
-                            train(0, d, n, epoch, btlnk_dim, batch_size,
-                                  method, w, dim, dim, extra_layers) #0=dummy
+    if run=="basic":
+        gpu="0"
+        for w in [1, 0.5, 2]:
+            for method in ["mean"]: #:, "max", "softmax"]:  #"softmax_self_challenged"
+                for n in [1]: # range(2,4):
+                    for dim in [64]: #dim of encoder/decoder
+                        for d in ["mnist", "cifar"]: #"ucsd1",
 
-                        if d=="mnist":
-                            epoch=15
-                            for i in range(0,10):
-                                train(i, d, n, epoch, btlnk_dim, batch_size,
-                                      method, w, dim, dim, extra_layers)
-#    for n in range(1,4):
-#        for l in ["mean", "max"]:
-#            for d in ["ucsd1", "mnist", "cifar"]:
-#                if d=="mnist":
-#                    epoch=15
-#                    for i in range(0,10):
-#                        train(i, d, n, epoch, btlnk_dimm, batch_size l)
-#                elif d=="cifar":
-#                    epoch=25
-#                    for i in range(0,10):
-#                            train(i, d, n, epoch, btlnk_dim, batch_size, l)
-#                if d=="ucsd1":
-#                    epoch=25
-#                    train(0, d, n, epoch, btlnk_dim, batch_size,l) #0=dummy
+                            if d=="cifar":
+                                epoch=25
+                                for i in range(0,10):
+                                    train(i, d, n, epoch, btlnk_dim, batch_size,
+                                          method, w, dim, dim, extra_layers, gpu=gpu)
+                            if d=="ucsd1":
+                                epoch=100
+                                train(0, d, n, epoch, btlnk_dim, batch_size,
+                                      method, w, dim, dim, extra_layers, gpu=gpu) #0=dummy
+
+                            if d=="mnist":
+                                epoch=15
+                                for i in range(0,10):
+                                    train(i, d, n, epoch, btlnk_dim, batch_size,
+                                          method, w, dim, dim, extra_layers, gpu=gpu)
+
+
+    elif "2u3":
+        gpu="1"
+        for w in [1, 0.5, 2]:
+            for method in ["mean", "max", "softmax"]:  #"softmax_self_challenged"
+                for n in range(2,4):
+                    for dim in [64]: #dim of encoder/decoder
+                        for d in ["ucsd1", "mnist", "cifar"]:
+
+                            if d=="cifar":
+                                epoch=25
+                                for i in range(0,10):
+                                    train(i, d, n, epoch, btlnk_dim, batch_size,
+                                          method, w, dim, dim, extra_layers, gpu=gpu)
+                            if d=="ucsd1":
+                                epoch=100
+                                train(0, d, n, epoch, btlnk_dim, batch_size,
+                                      method, w, dim, dim, extra_layers, gpu=gpu) #0=dummy
+
+                            if d=="mnist":
+                                epoch=15
+                                for i in range(0,10):
+                                    train(i, d, n, epoch, btlnk_dim, batch_size,
+                                          method, w, dim, dim, extra_layers, gpu=gpu)
+    elif "4u5":
+        gpu="2"
+        for w in [1, 0.5, 2]:
+            for method in ["mean", "max", "softmax"]:  #"softmax_self_challenged"
+                for n in range(2,4):
+                    for dim in [64]: #dim of encoder/decoder
+                        for d in ["ucsd1", "mnist", "cifar"]:
+
+                            if d=="cifar":
+                                epoch=25
+                                for i in range(0,10):
+                                    train(i, d, n, epoch, btlnk_dim, batch_size,
+                                          method, w, dim, dim, extra_layers, gpu=gpu)
+                            if d=="ucsd1":
+                                epoch=100
+                                train(0, d, n, epoch, btlnk_dim, batch_size,
+                                      method, w, dim, dim, extra_layers, gpu=gpu) #0=dummy
+
+                            if d=="mnist":
+                                epoch=15
+                                for i in range(0,10):
+                                    train(i, d, n, epoch, btlnk_dim, batch_size,
+                                          method, w, dim, dim, extra_layers, gpu=gpu)

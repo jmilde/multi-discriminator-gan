@@ -199,6 +199,12 @@ class MG_GAN(Record):
                 tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(dgx_), logits=dgx_)) for dgx_ in dgx.values()]
 
             lam = placeholder(tf.float32, None, lam, "lam") # only for softmax, otherwise dummy
+            if loss == "softmax_self_challenged":
+                trained_l = tf.Variable(initial_value=-2., name='controlled_lambda')
+                used_lam = tf.nn.softplus(trained_l, name='used_lambda')
+            else:
+                used_lam = lam
+
             if loss=="mean":
                 g_loss = context_weight* loss_rec + tf.reduce_mean(loss_g_fake)
             elif loss=="max": # max picks biggest loss = best discriminators feedback is used
@@ -206,17 +212,13 @@ class MG_GAN(Record):
 
             elif "softmax" in loss:
                 # if lambda is self_learnt
-                if loss == "softmax_self_challenged":
-                    trained_l = tf.Variable(initial_value=-2., name='controlled_lambda')
-                    lam = tf.nn.softplus(trained_l, name='used_lambda')
-
-                if lam == 0.:
+                if used_lam == 0.:
                     weights = tf.ones_like(loss_g_fake)
                 else:
                     if weight_type == 'log':
-                        weights = tf.pow(loss_g_fake, lam)
+                        weights = tf.pow(loss_g_fake, used_lam)
                     else:
-                        weights = tf.exp(lam * loss_g_fake)
+                        weights = tf.exp(used_lam * loss_g_fake)
 
                 g_loss = context_weight* loss_rec + weighted_arithmetic(weights, loss_g_fake)
                 #g_loss = weight* loss_rec + tf.reduce_mean(tf.nn.softmax(loss_g_fake)*loss_g_fake)
@@ -241,7 +243,7 @@ class MG_GAN(Record):
 
 
         return MG_GAN(self
-                      , lam=lam
+                      , lam=used_lam
                      , step=step
                      , x=x
                      , y=y
