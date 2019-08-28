@@ -195,28 +195,29 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
         summ(sess.run(model["step"])//steps_per_epoch)
         #else:
         #    log(sess.run(model["step"])//steps_per_epoch)
-        if n_dis>1:
-            summ_discr(sess.run(model["step"])//steps_per_epoch)
+        #if n_dis>1:
+        #    summ_discr(sess.run(model["step"])//steps_per_epoch)
 
     saver.save(sess, pform(path_ckpt, trial), write_meta_graph=False)
 
 
 if __name__ == "__main__":
     ###########################
-    run="4u5" #"2u3" # "basic", "4u5"
+    run="2u3" #"2u3" # "basic", "4u5"
     ###########################
     btlnk_dim = 32
-    batch_size = 64
+    batch_size = 32
     extra_layers = 0
     w=1
 
+
     if run=="basic":
         gpu="0"
-        for w in [1, 0.5, 2]:
+        for w in [1, 0.1, 5]:
             for method in ["mean"]: #:, "max", "softmax"]:  #"softmax_self_challenged"
                 for n in [1]: # range(2,4):
                     for dim in [64]: #dim of encoder/decoder
-                        for d in ["mnist", "cifar"]: #"ucsd1",
+                        for d in ["mnist", "cifar", "ucsd1"]:
 
                             if d=="cifar":
                                 epoch=25
@@ -235,9 +236,9 @@ if __name__ == "__main__":
                                           method, w, dim, dim, extra_layers, gpu=gpu)
 
 
-    elif "2u3":
+    elif run=="2u3":
         gpu="1"
-        for w in [1, 0.5, 2]:
+        for w in [1, 0.1, 5]:
             for method in ["mean", "max", "softmax"]:  #"softmax_self_challenged"
                 for n in range(2,4):
                     for dim in [64]: #dim of encoder/decoder
@@ -258,14 +259,13 @@ if __name__ == "__main__":
                                 for i in range(0,10):
                                     train(i, d, n, epoch, btlnk_dim, batch_size,
                                           method, w, dim, dim, extra_layers, gpu=gpu)
-    elif "4u5":
+    elif run=="4u5":
         gpu="2"
-        for w in [1, 0.5, 2]:
-            for method in ["mean", "max", "softmax"]:  #"softmax_self_challenged"
-                for n in range(2,4):
+        for w in [1, 0.1, 5]:#, 0.5, 2]:
+            for method in ["max", "mean", "softmax"]:  #"softmax_self_challenged"
+                for n in range(4,6):
                     for dim in [64]: #dim of encoder/decoder
                         for d in ["ucsd1", "mnist", "cifar"]:
-
                             if d=="cifar":
                                 epoch=25
                                 for i in range(0,10):

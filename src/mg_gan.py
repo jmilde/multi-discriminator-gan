@@ -238,7 +238,7 @@ class MG_GAN(Record):
             step = tf.train.get_or_create_global_step()
             optimizer = tf.train.AdamOptimizer()
             #d_step = optimizer.minimize(d_loss, step, var_list=d_vars)
-            d_step = [optimizer.minimize(loss, step, var_list=d_vars[i]) for i, loss in enumerate(d_loss)]
+            d_step = [optimizer.minimize(loss, var_list=d_vars[i]) for i, loss in enumerate(d_loss)]
             g_step = optimizer.minimize(g_loss, step, var_list=g_vars)
 
 
