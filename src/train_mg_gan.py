@@ -203,7 +203,7 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
 
 if __name__ == "__main__":
     ###########################
-    run="2u3" #"2u3" # "basic", "4u5"
+    run="basic" #"2u3" # "basic", "4u5"
     ###########################
     btlnk_dim = 32
     batch_size = 32
@@ -213,27 +213,26 @@ if __name__ == "__main__":
 
     if run=="basic":
         gpu="0"
-        for w in [1, 0.1, 5]:
-            for method in ["mean"]: #:, "max", "softmax"]:  #"softmax_self_challenged"
-                for n in [1]: # range(2,4):
-                    for dim in [64]: #dim of encoder/decoder
-                        for d in ["mnist", "cifar", "ucsd1"]:
+        w=1
+        for method in ["softmax_self_challenged"]:
+            for n in range(2,4):
+                for dim in [64]: #dim of encoder/decoder
+                    for d in ["ucsd1", "mnist", "cifar"]:
+                        if d=="cifar":
+                            epoch=25
+                            for i in range(0,10):
+                                train(i, d, n, epoch, btlnk_dim, batch_size,
+                                      method, w, dim, dim, extra_layers, gpu=gpu)
+                        if d=="ucsd1":
+                            epoch=100
+                            train(0, d, n, epoch, btlnk_dim, batch_size,
+                                  method, w, dim, dim, extra_layers, gpu=gpu) #0=dummy
 
-                            if d=="cifar":
-                                epoch=25
-                                for i in range(0,10):
-                                    train(i, d, n, epoch, btlnk_dim, batch_size,
-                                          method, w, dim, dim, extra_layers, gpu=gpu)
-                            if d=="ucsd1":
-                                epoch=100
-                                train(0, d, n, epoch, btlnk_dim, batch_size,
-                                      method, w, dim, dim, extra_layers, gpu=gpu) #0=dummy
-
-                            if d=="mnist":
-                                epoch=15
-                                for i in range(0,10):
-                                    train(i, d, n, epoch, btlnk_dim, batch_size,
-                                          method, w, dim, dim, extra_layers, gpu=gpu)
+                        if d=="mnist":
+                            epoch=15
+                            for i in range(0,10):
+                                train(i, d, n, epoch, btlnk_dim, batch_size,
+                                      method, w, dim, dim, extra_layers, gpu=gpu)
 
 
     elif run=="2u3":

@@ -199,11 +199,13 @@ class MG_GAN(Record):
                 tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(dgx_), logits=dgx_)) for dgx_ in dgx.values()]
 
             lam = placeholder(tf.float32, None, lam, "lam") # only for softmax, otherwise dummy
-            if loss == "softmax_self_challenged":
-                trained_l = tf.Variable(initial_value=-2., name='controlled_lambda')
-                used_lam = tf.nn.softplus(trained_l, name='used_lambda')
-            else:
-                used_lam = lam
+
+            with scope("lambda"):
+                if loss == "softmax_self_challenged":
+                    trained_l = tf.Variable(initial_value=-2., name='controlled_lambda')
+                    used_lam = tf.nn.softplus(trained_l, name='used_lambda')
+                else:
+                    used_lam = lam
 
             if loss=="mean":
                 g_loss = context_weight* loss_rec + tf.reduce_mean(loss_g_fake)
@@ -220,7 +222,10 @@ class MG_GAN(Record):
                     else:
                         weights = tf.exp(used_lam * loss_g_fake)
 
-                g_loss = context_weight* loss_rec + weighted_arithmetic(weights, loss_g_fake)
+                if loss=="softmax":
+                    g_loss = context_weight* loss_rec + weighted_arithmetic(weights, loss_g_fake)
+                else:
+                    g_loss = context_weight* loss_rec + weighted_arithmetic(weights, loss_g_fake) - 0.001*used_lam
                 #g_loss = weight* loss_rec + tf.reduce_mean(tf.nn.softmax(loss_g_fake)*loss_g_fake)
 
 
@@ -230,6 +235,9 @@ class MG_GAN(Record):
             _, auc_gx = tf.metrics.auc(y, tf.reduce_mean((x-gx)**2, axis=(1,2,3)))
 
         g_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator")
+        if loss == "softmax_self_challenged":
+            lambda_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="loss/lambda")
+            g_vars.extend(lambda_var)
         #d_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator")
         d_vars = {i: tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=f"discriminator_{i}")
                   for i in dx.keys()}
