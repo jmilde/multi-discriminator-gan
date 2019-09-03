@@ -215,7 +215,7 @@ if __name__ == "__main__":
         gpu="0"
         w=1
         for method in ["softmax_self_challenged"]:
-            for n in range(2,4):
+            for n in range(4,6):
                 for dim in [64]: #dim of encoder/decoder
                     for d in ["ucsd1", "mnist", "cifar"]:
                         if d=="cifar":
@@ -237,9 +237,9 @@ if __name__ == "__main__":
 
     elif run=="2u3":
         gpu="1"
-        for w in [1, 0.1, 5]:
-            for method in ["mean", "max", "softmax"]:  #"softmax_self_challenged"
-                for n in range(2,4):
+        for w in [1]:
+            for method in ["max"]:  #"softmax_self_challenged"
+                for n in [3]:#range(2,4):
                     for dim in [64]: #dim of encoder/decoder
                         for d in ["ucsd1", "mnist", "cifar"]:
 
@@ -260,17 +260,19 @@ if __name__ == "__main__":
                                           method, w, dim, dim, extra_layers, gpu=gpu)
     elif run=="4u5":
         gpu="2"
-        for w in [1, 0.1, 5]:#, 0.5, 2]:
-            for method in ["max", "mean", "softmax"]:  #"softmax_self_challenged"
+        for w in [1]:#, 0.5, 2]:
+            for method in ["mean"]: #, "softmax"]:  #"softmax_self_challenged"
                 for n in range(4,6):
                     for dim in [64]: #dim of encoder/decoder
                         for d in ["ucsd1", "mnist", "cifar"]:
+
                             if d=="cifar":
                                 epoch=25
                                 for i in range(0,10):
                                     train(i, d, n, epoch, btlnk_dim, batch_size,
                                           method, w, dim, dim, extra_layers, gpu=gpu)
-                            if d=="ucsd1":
+
+                            if d=="ucsd1" and n!=4:
                                 epoch=100
                                 train(0, d, n, epoch, btlnk_dim, batch_size,
                                       method, w, dim, dim, extra_layers, gpu=gpu) #0=dummy
