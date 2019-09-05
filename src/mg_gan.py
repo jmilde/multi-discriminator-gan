@@ -208,9 +208,11 @@ class MG_GAN(Record):
                     used_lam = lam
 
             if loss=="mean":
-                g_loss = context_weight* loss_rec + tf.reduce_mean(loss_g_fake)
+                gl_adv = tf.reduce_mean(loss_g_fake)
+                g_loss = context_weight* loss_rec + gl_adv
             elif loss=="max": # max picks biggest loss = best discriminators feedback is used
-                g_loss = context_weight* loss_rec + tf.reduce_max(loss_g_fake)
+                gl_adv = tf.reduce_max(loss_g_fake)
+                g_loss = context_weight* loss_rec + gl_adv
 
             elif "softmax" in loss:
                 # if lambda is self_learnt
@@ -222,10 +224,12 @@ class MG_GAN(Record):
                     else:
                         weights = tf.exp(used_lam * loss_g_fake)
 
+                gl_adv = weighted_arithmetic(weights, loss_g_fake)
+
                 if loss=="softmax":
-                    g_loss = context_weight* loss_rec + weighted_arithmetic(weights, loss_g_fake)
+                    g_loss = context_weight* loss_rec + gl_adv
                 else:
-                    g_loss = context_weight* loss_rec + weighted_arithmetic(weights, loss_g_fake) - 0.001*used_lam
+                    g_loss = context_weight* loss_rec + gl_adv - 0.001*used_lam
                 #g_loss = weight* loss_rec + tf.reduce_mean(tf.nn.softmax(loss_g_fake)*loss_g_fake)
 
 
@@ -261,5 +265,10 @@ class MG_GAN(Record):
                      #, auc_dx=auc_dx
                      , g_step=g_step
                      , d_step=d_step
+                      , gl_rec= context_weight*loss_rec
+                      , gl_lam = 0.001*used_lam
+                      , gl_adv = gl_adv
                      , g_loss=g_loss
-                     , d_loss=d_loss)
+                     , d_loss=d_loss
+                      , d_loss_mean = tf.reduce_mean(d_loss)
+                      , d_max = tf.argmax(d_loss))

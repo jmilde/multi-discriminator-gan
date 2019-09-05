@@ -115,10 +115,14 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
 
     #if "ucsd" in dataset:
     summary_test = tf.summary.merge([tf.summary.scalar('g_loss', model.g_loss)
-                                         , tf.summary.scalar("lambda", model.lam)
-                                         , tf.summary.scalar('d_loss_mean', tf.reduce_mean(model.d_loss))
-                                         #, tf.summary.scalar('d_loss', model.d_loss)
-                                         , tf.summary.scalar("AUC_gx", model.auc_gx)])
+                                     , tf.summary.scalar("lambda", model.lam)
+                                     , tf.summary.scalar("gl_rec", model.gl_rec)
+                                     , tf.summary.scalar("gl_adv", model.gl_adv)
+                                     , tf.summary.scalar("gl_lam", model.gl_lam)
+                                     , tf.summary.scalar('d_loss_mean', model.d_loss_mean)
+                                     , tf.summary.scalar('d_max', model.d_max)
+                                     #, tf.summary.scalar('d_loss', model.d_loss)
+                                     , tf.summary.scalar("AUC_gx", model.auc_gx)])
     if dataset=="ucsd1":
         summary_images = tf.summary.merge((tf.summary.image("gx", model.gx, max_outputs=8)
                                                , tf.summary.image("x", model.x, max_outputs=8)
@@ -136,7 +140,7 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
                         for i in range(n_dis)}
 
     def summ(step):
-        fetches = model.g_loss, model.lam, tf.reduce_mean(model.d_loss), model.auc_gx
+        fetches = model.g_loss, model.lam, model.d_loss_mean, model.auc_gx
         results = map(np.mean, zip(*(
             sess.run(fetches,
                      {model['x']: x_test[i:j]
@@ -195,15 +199,15 @@ def train(anomaly_class = 8, dataset="cifar", n_dis=1, epochs=25, dim_btlnk=32,
         summ(sess.run(model["step"])//steps_per_epoch)
         #else:
         #    log(sess.run(model["step"])//steps_per_epoch)
-        #if n_dis>1:
-        #    summ_discr(sess.run(model["step"])//steps_per_epoch)
+        if n_dis>1:
+            summ_discr(sess.run(model["step"])//steps_per_epoch)
 
     saver.save(sess, pform(path_ckpt, trial), write_meta_graph=False)
 
 
 if __name__ == "__main__":
     ###########################
-    run="basic" #"2u3" # "basic", "4u5"
+    run="4u5" #"2u3" # "basic", "4u5"
     ###########################
     btlnk_dim = 32
     batch_size = 32
@@ -237,11 +241,11 @@ if __name__ == "__main__":
 
     elif run=="2u3":
         gpu="1"
-        for w in [1]:
-            for method in ["max"]:  #"softmax_self_challenged"
-                for n in [3]:#range(2,4):
+        for w in [0.1,5]:
+            for method in ["mean", "softmax_self_challenged"]:
+                for n in range(2,6):
                     for dim in [64]: #dim of encoder/decoder
-                        for d in ["ucsd1", "mnist", "cifar"]:
+                        for d in ["ucsd1"]:#, "mnist", "cifar"]:
 
                             if d=="cifar":
                                 epoch=25
@@ -260,11 +264,11 @@ if __name__ == "__main__":
                                           method, w, dim, dim, extra_layers, gpu=gpu)
     elif run=="4u5":
         gpu="2"
-        for w in [1]:#, 0.5, 2]:
-            for method in ["mean"]: #, "softmax"]:  #"softmax_self_challenged"
-                for n in range(4,6):
+        for w in [1, 0.1, 5]:
+            for method in ["max"]: #, "softmax"]:  #"softmax_self_challenged"
+                for n in range(2,6):
                     for dim in [64]: #dim of encoder/decoder
-                        for d in ["ucsd1", "mnist", "cifar"]:
+                        for d in ["mnist", "cifar", "ucsd1",]:
 
                             if d=="cifar":
                                 epoch=25
